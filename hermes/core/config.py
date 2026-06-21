@@ -23,11 +23,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _default_symbols() -> list[str]:
-    return ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT"]
+    return ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "HYPE/USDT"]
+
+
+def _default_symbol_exchanges() -> dict[str, str]:
+    # Per-coin exchange overrides. HYPE (Hyperliquid) is not on Binance spot,
+    # so its price comes from Bybit; everything else uses the default exchange.
+    return {"HYPE/USDT": "bybit"}
 
 
 def _default_sleeve_fill() -> dict[str, float | None]:
-    # Rating -> how full to make this coin's equal-weight sleeve.
+    # Rating -> how full to make this coin's equal-weight sleeve (target_weight
+    # strategy only).
     return {"Buy": 1.0, "Overweight": 0.70, "Hold": None, "Underweight": 0.35, "Sell": 0.0}
 
 
@@ -52,9 +59,10 @@ class Config:
     starting_cash: float = 10000.0
     quote_currency: str = "USDT"
 
-    # Market data — a basket of coins (multi-asset).
-    exchange: str = "binance"
+    # Market data — a basket of coins (multi-asset), each on its own exchange.
+    exchange: str = "binance"                 # default exchange for price data
     symbols: list[str] = field(default_factory=_default_symbols)
+    symbol_exchanges: dict[str, str] = field(default_factory=_default_symbol_exchanges)
     candle_timeframe: str = "1h"
     candle_lookback: int = 200
 
@@ -62,14 +70,21 @@ class Config:
     taker_fee_rate: float = 0.001
     slippage_rate: float = 0.0005
 
-    # Risk / sizing (decision D4 — target-weight, long-only, equal-weight sleeves)
-    # Each coin gets an equal sleeve = max_total_exposure / N; its rating sets
-    # how full that sleeve is (``sleeve_fill``). ``max_position_pct`` is a hard
-    # per-coin ceiling on portfolio weight.
+    # Risk / sizing (decision D4). Two strategies are supported:
+    #   "fixed_notional" (default) — each buy signal buys ``trade_notional`` of
+    #     the coin (opportunistic, fixed-dollar trades), capped per coin at
+    #     ``max_position_notional``; Sell closes the position, Underweight trims
+    #     one trade's worth.
+    #   "target_weight" — equal-weight sleeves (max_total_exposure / N per coin),
+    #     filled per rating via ``sleeve_fill``.
+    strategy: str = "fixed_notional"
+    trade_notional: float = 100.0             # USDT bought/sold per signal (fixed_notional)
+    max_position_notional: float = 2000.0     # per-coin cap (fixed_notional)
+    min_order_notional: float = 10.0          # skip dust orders (both strategies)
+    # target_weight-only knobs:
     max_total_exposure: float = 0.80
     max_position_pct: float = 0.40
     sleeve_fill: dict[str, float | None] = field(default_factory=_default_sleeve_fill)
-    min_order_notional: float = 10.0
     rebalance_threshold_pct: float = 0.05
 
     # LLM
@@ -119,11 +134,11 @@ class Config:
 # Fields on Config that may be overridden by a matching YAML key.
 _OVERRIDABLE = {
     "broker", "starting_cash", "quote_currency", "exchange", "symbols",
-    "candle_timeframe", "candle_lookback", "taker_fee_rate", "slippage_rate",
-    "max_total_exposure", "max_position_pct", "sleeve_fill",
-    "min_order_notional", "rebalance_threshold_pct", "llm_provider",
-    "deep_think_llm", "quick_think_llm", "max_debate_rounds",
-    "max_risk_discuss_rounds", "analysts",
+    "symbol_exchanges", "candle_timeframe", "candle_lookback", "taker_fee_rate",
+    "slippage_rate", "strategy", "trade_notional", "max_position_notional",
+    "min_order_notional", "max_total_exposure", "max_position_pct",
+    "sleeve_fill", "rebalance_threshold_pct", "llm_provider", "deep_think_llm",
+    "quick_think_llm", "max_debate_rounds", "max_risk_discuss_rounds", "analysts",
 }
 
 

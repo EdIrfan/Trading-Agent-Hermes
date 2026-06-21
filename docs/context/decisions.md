@@ -35,18 +35,28 @@ PROD ones (D9, D10) can wait.
   richer live history itself.
 - **Impact:** `data/` + `brain/` adapter. Blocks Phase 1.
 
-## D4 — Mapping the 5-tier rating to an action
+## D4 — Mapping the 5-tier rating to an action ✅ RESOLVED (revised 2026-06-21)
 - **Question:** How should **Buy / Overweight / Hold / Underweight / Sell** become
-  an actual order? Two styles:
-  - **Target-weight:** each rating maps to a target % of the portfolio in BTC
-    (e.g. Buy→80%, Overweight→60%, Hold→hold, Underweight→30%, Sell→0%); Hermes
-    trades the difference.
-  - **Fixed-step:** each Buy adds a fixed slice; each Sell removes one.
-- **My recommendation:** **Target-weight**, long-only, single asset — it's
-  intuitive, naturally caps exposure, and turns the 5 tiers into smooth sizing.
-  Start conservative (e.g. max 50–80% in BTC, rest cash).
-- **Impact:** `risk/` core logic. Blocks Phase 2. *(We can tune the exact
-  percentages together once it runs.)*
+  an actual order?
+- **Decision: `fixed_notional`** — fixed-dollar, opportunistic trades (user
+  preference, 2026-06-21). Take trades as signals come, each a fixed size:
+  - **Buy / Overweight** → buy **`trade_notional`** (default **$100**) of the coin,
+    if under the per-coin cap (`max_position_notional`, default $2,000) and cash
+    allows.
+  - **Underweight** → sell one `trade_notional`'s worth (trim).
+  - **Sell** → close the whole position.
+  - **Hold** → nothing.
+  - Coins are processed in basket order, cash-limited — so it's naturally
+    "first come, first served" when cash gets tight. Starting capital stays $10k.
+  - Change the trade size in `config/<env>.yaml` → `trade_notional` (e.g. 50).
+- **Also available:** `strategy: target_weight` — the original equal-weight-sleeve
+  model (each coin targets `max_total_exposure / N`). Kept as an option, not the
+  default.
+- **Basket (multi-asset):** **BTC, ETH, SOL, BNB, HYPE** (user-chosen). HYPE
+  (Hyperliquid) is not on Binance spot, so it is priced via **Bybit** through the
+  per-coin `symbol_exchanges` routing; the others use Binance. See
+  [environments.md](environments.md) and `hermes/data/market.py`.
+- **Impact:** `risk/` core logic + multi-exchange `data/`. **Done.**
 
 ## D5 — LLM provider & model for the brain ✅ RESOLVED
 - **Decision:** **Anthropic (Claude).** `llm_provider = "anthropic"`.
@@ -122,9 +132,10 @@ accordingly before writing code.
   **except D5** which is explicitly set to **Anthropic / Claude** (see D5 above).
   So the working defaults are now:
   - D1 Hermes name, local git repo.
-  - D2 **ccxt** for Binance access.
+  - D2 **ccxt** for exchange access (multi-exchange: Binance + Bybit for HYPE).
   - D3 inject a **verified live snapshot** into the brain (option B).
-  - D4 **target-weight** rating→action mapping, long-only single-asset.
+  - D4 **REVISED → `fixed_notional`** ($100/trade) over a **5-coin basket**
+    (BTC/ETH/SOL/BNB/HYPE), long-only. See D4 above.
   - D5 **Anthropic/Claude** — Sonnet 4.6 + Haiku 4.5 for DEV iteration, Opus 4.8 +
     Sonnet 4.6 for quality runs. **Needs an `ANTHROPIC_API_KEY` (paid) — pending.**
   - D6 model **fees + small slippage** from day one.

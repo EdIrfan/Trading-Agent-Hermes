@@ -58,11 +58,13 @@ Read [explanation.md](explanation.md), [context.md](context.md), and
 
 ## 3. Component responsibilities
 
-### 3.1 Market Data (`hermes/data/`)
-- Fetch **live** Binance prices and recent candles (keyless public API).
-- Provide a "current price" and a small recent-history window.
-- **Symbol mapping:** Binance `BTCUSDT` ↔ Yahoo `BTC-USD` ↔ TradingAgents internal.
-  Extend/reuse `tradingagents/dataflows/symbol_utils.py` conventions.
+### 3.1 Market Data (`hermes/data/`)  — IMPLEMENTED
+- Fetch **live** prices and recent candles via ccxt (keyless public API).
+- **Multi-exchange routing** (`RoutingMarketData`): each coin can use its own
+  exchange. Default is Binance; HYPE is routed to Bybit (not on Binance spot) via
+  `config.symbol_exchanges`. ccxt clients are created lazily, one per exchange.
+- **Symbol mapping** (`hermes/data/symbols.py`): ccxt `BTC/USDT` ↔ Binance
+  `BTCUSDT` ↔ Yahoo `BTC-USD` ↔ base `BTC`.
 - **Feed the brain:** make the live price reach TradingAgents' market analyst.
   Two options (decide in [decisions.md](decisions.md)):
   - **(A) Binance vendor inside TradingAgents config** — register a `binance`
@@ -81,15 +83,19 @@ Read [explanation.md](explanation.md), [context.md](context.md), and
 - This is the *only* place that knows TradingAgents' internals, so upstream
   changes are absorbed here.
 
-### 3.3 Risk Manager (`hermes/risk/`)
-- Translate the AI's words ("Buy", "Overweight", "5% of portfolio") into a
-  **concrete order quantity** given current portfolio state.
-- Enforce **hard guardrails** (independent of the AI): max position %, max order
-  size, daily loss limit, cooldown between trades, min order size, kill-switch.
-- Decide the **5-tier → action mapping** (e.g. Buy/Overweight → increase toward a
-  target weight; Underweight/Sell → reduce; Hold → no-op). Exact mapping is a
-  decision (see [decisions.md](decisions.md)).
-- Long-only and spot-only to start.
+### 3.3 Risk Manager (`hermes/risk/`)  — IMPLEMENTED
+- Translate each coin's rating into a **concrete order quantity** given current
+  portfolio state. Two strategies (`config.strategy`, decision D4):
+  - **`fixed_notional`** (default): Buy/Overweight → buy a fixed `trade_notional`
+    ($100) of the coin if under the per-coin cap and cash allows; Underweight →
+    trim one trade's worth; Sell → close the position; Hold → no-op.
+  - **`target_weight`**: equal-weight sleeves (each coin targets
+    `max_total_exposure / N`), filled per rating.
+- Enforce **hard guardrails** (independent of the AI): per-coin cap
+  (`max_position_notional`), min order size, cash limits. Daily-loss circuit
+  breaker, cooldown, and kill-switch are Phase 3.
+- Long-only and spot-only. Multi-asset basket (BTC/ETH/SOL/BNB/HYPE), each coin
+  sized independently each cycle.
 
 ### 3.4 Broker (`hermes/broker/`) — the DEV/PROD seam
 A single interface, e.g.:
@@ -231,7 +237,9 @@ Each phase is independently demoable. **We start at Phase 0/1; PROD is late.**
 ## 6. What we deliberately defer
 
 - Shorting, leverage, futures (start long-only spot).
-- Multiple simultaneous assets / portfolio optimization (start single-asset).
+- ~~Multiple simultaneous assets~~ — **done**: trades a 5-coin basket
+  (BTC/ETH/SOL/BNB/HYPE) with per-coin exchange routing. Portfolio *optimization*
+  (smart cross-coin allocation) is still deferred; sizing is per-coin fixed-dollar.
 - Web dashboard / GUI (start CLI).
 - WebSocket streaming (start REST polling).
 - Fine-tuning the brain's prompts (use it as-is first).

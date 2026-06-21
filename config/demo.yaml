@@ -14,22 +14,19 @@ symbols:
   - ETH/USDT
   - SOL/USDT
   - BNB/USDT
+  - HYPE/USDT
+symbol_exchanges:
+  HYPE/USDT: bybit
 candle_timeframe: 1h
 candle_lookback: 50
 
 taker_fee_rate: 0.001
 slippage_rate: 0.0005
 
-max_total_exposure: 0.80
-max_position_pct: 0.40
-sleeve_fill:
-  Buy: 1.0
-  Overweight: 0.70
-  Hold: null
-  Underweight: 0.35
-  Sell: 0.0
+strategy: fixed_notional
+trade_notional: 100.0
+max_position_notional: 2000.0
 min_order_notional: 10.0
-rebalance_threshold_pct: 0.05
 
 llm_provider: anthropic
 deep_think_llm: claude-sonnet-4-6

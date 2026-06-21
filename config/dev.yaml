@@ -1,4 +1,4 @@
-# Hermes DEV configuration (paper trading on live Binance prices).
+# Hermes DEV configuration (paper trading on live prices).
 # Non-secret settings live here; secrets live in .env.dev. See docs/context/.
 
 environment: dev
@@ -10,35 +10,34 @@ starting_cash: 10000.0          # fake USDT the paper account begins with
 quote_currency: USDT
 
 # ---- Exchange / market data ----
-exchange: binance
-# The basket. Each coin gets an equal-weight sleeve (see sizing below).
+# The basket. Most coins price on Binance; HYPE (Hyperliquid) is not on Binance
+# spot, so it is routed to Bybit via symbol_exchanges.
+exchange: binance               # default exchange for price data
 symbols:
   - BTC/USDT
   - ETH/USDT
   - SOL/USDT
   - BNB/USDT
+  - HYPE/USDT
+symbol_exchanges:
+  HYPE/USDT: bybit
 candle_timeframe: 1h
-candle_lookback: 200             # recent candles fed to the brain snapshot
+candle_lookback: 200            # recent candles fed to the brain snapshot
 
 # ---- Paper-trading frictions (decision D6) ----
-taker_fee_rate: 0.001            # 0.1% Binance spot taker fee
-slippage_rate: 0.0005            # 0.05% assumed slippage on market orders
+taker_fee_rate: 0.001           # 0.1% spot taker fee
+slippage_rate: 0.0005           # 0.05% assumed slippage on market orders
 
-# ---- Risk / sizing (decision D4 — multi-asset target-weight, long-only) ----
-# Crypto exposure is capped at max_total_exposure and split into equal sleeves
-# (max_total_exposure / number_of_coins). Each coin's rating sets how full its
-# sleeve is via sleeve_fill. Example: 80% / 4 coins = 20% sleeve each; a "Buy"
-# fills it (20% of portfolio in that coin), "Overweight" 70% of the sleeve, etc.
-max_total_exposure: 0.80         # max fraction of portfolio held in crypto overall
-max_position_pct: 0.40           # hard per-coin ceiling on portfolio weight
-sleeve_fill:
-  Buy: 1.0
-  Overweight: 0.70
-  Hold: null                     # null = leave this coin's weight unchanged
-  Underweight: 0.35
-  Sell: 0.0
-min_order_notional: 10.0         # skip orders smaller than this (Binance min lot guard)
-rebalance_threshold_pct: 0.05    # ignore target/actual gaps smaller than 5% (avoid churn)
+# ---- Risk / sizing (decision D4) ----
+# fixed_notional: take fixed-dollar trades as signals come, capped per coin.
+#   Buy / Overweight -> buy trade_notional of the coin (if under the cap & cash allows)
+#   Underweight      -> sell one trade_notional's worth
+#   Sell             -> close the position
+#   Hold             -> nothing
+strategy: fixed_notional
+trade_notional: 100.0           # USDT bought/sold per signal (change to 50 for smaller trades)
+max_position_notional: 2000.0   # hard per-coin cap (max held in any one coin)
+min_order_notional: 10.0        # skip dust orders (Binance min-lot guard)
 
 # ---- LLM (the brain) ----
 llm_provider: anthropic

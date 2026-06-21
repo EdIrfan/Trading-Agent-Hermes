@@ -1,9 +1,9 @@
 """End-to-end DEV loop with no network and no API key.
 
 Wires FakeMarketData + MockBrain + PaperBroker + a temp-dir portfolio/ledger and
-asserts one cycle paper-buys the whole basket toward its target weights, moves
-cash into the positions, and records the fills. This is the smoke test that the
-pipeline holds together before the real brain and live feed are connected.
+asserts one cycle takes a fixed-dollar buy in each coin, moves cash into the
+positions, and records the fills. The smoke test that the pipeline holds
+together before the real brain and live feed are connected.
 """
 
 from hermes.brain.mock import MockBrain
@@ -25,16 +25,15 @@ def _config(state_root):
         secrets={},
         state_root=state_root,
         symbols=["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT"],
+        symbol_exchanges={},          # all on the fake feed in tests
         starting_cash=10000.0,
         candle_lookback=30,
         taker_fee_rate=0.001,
         slippage_rate=0.0005,
-        max_total_exposure=0.80,
-        max_position_pct=0.40,
-        sleeve_fill={"Buy": 1.0, "Overweight": 0.70, "Hold": None,
-                     "Underweight": 0.35, "Sell": 0.0},
+        strategy="fixed_notional",
+        trade_notional=100.0,
+        max_position_notional=2000.0,
         min_order_notional=10.0,
-        rebalance_threshold_pct=0.05,
     )
 
 
@@ -54,24 +53,24 @@ def _orchestrator(config, brain):
     )
 
 
-def test_buy_cycle_fills_whole_basket(tmp_path):
+def test_buy_cycle_takes_fixed_dollar_trades(tmp_path):
     config = _config(tmp_path)
     orch = _orchestrator(config, MockBrain("Buy"))
 
     cycle = orch.run_cycle(dry_run=False)
 
-    # Every coin got a Buy and a fill (each targets a 20% sleeve).
+    # Every coin got a Buy and a ~$100 fill.
     assert len(cycle.fills) == 4
     for base in BASES:
         assert orch.portfolio.quantity(base) > 0
-    assert orch.portfolio.cash < 10000.0
+    # ~$400 deployed (+fees) -> cash a little under 9600.
+    assert 9590 < orch.portfolio.cash < 9601
     assert len(Ledger(config.ledger_path).all_fills()) == 4
     assert list(config.decisions_dir.glob("*.json"))
-
-    # ~80% of value across the basket (max_total_exposure), ~20% cash.
+    # Each position is about $100 at the fill price.
     prices = {a.base: a.price for a in cycle.assets}
-    crypto_weight = sum(orch.portfolio.weight(b, prices) for b in BASES)
-    assert 0.78 < crypto_weight < 0.82
+    for base in BASES:
+        assert 95 < orch.portfolio.quantity(base) * prices[base] < 102
 
 
 def test_dry_run_places_nothing(tmp_path):
@@ -80,8 +79,8 @@ def test_dry_run_places_nothing(tmp_path):
 
     cycle = orch.run_cycle(dry_run=True)
 
-    assert all(a.order is not None for a in cycle.assets)   # intent computed
-    assert not cycle.fills                                  # nothing executed
+    assert all(a.order is not None for a in cycle.assets)
+    assert not cycle.fills
     assert orch.portfolio.cash == 10000.0
     assert not Ledger(config.ledger_path).all_fills()
 

@@ -75,10 +75,47 @@ class CcxtMarketData:
         ]
 
 
+class RoutingMarketData:
+    """Routes each symbol to its own exchange (default + per-symbol overrides).
+
+    Most coins use the default exchange (Binance); coins not listed there — e.g.
+    HYPE, which trades on Bybit — are routed via ``symbol_exchanges``. ccxt
+    clients are created lazily, one per exchange, so we only connect to what the
+    basket actually uses.
+    """
+
+    def __init__(self, default_exchange: str, symbol_exchanges: dict[str, str] | None = None):
+        self.default_exchange = default_exchange
+        self.symbol_exchanges = symbol_exchanges or {}
+        self._clients: dict[str, object] = {}
+
+    def _client(self, ccxt_symbol: str):
+        import ccxt  # lazy
+
+        name = self.symbol_exchanges.get(ccxt_symbol, self.default_exchange)
+        if name not in self._clients:
+            self._clients[name] = getattr(ccxt, name)({"enableRateLimit": True})
+        return self._clients[name]
+
+    def get_price(self, ccxt_symbol: str) -> float:
+        ticker = self._client(ccxt_symbol).fetch_ticker(ccxt_symbol)
+        price = ticker.get("last") or ticker.get("close")
+        if price is None:
+            raise RuntimeError(f"No price returned for {ccxt_symbol}")
+        return float(price)
+
+    def get_candles(self, ccxt_symbol: str, timeframe: str, limit: int) -> list[Candle]:
+        rows = self._client(ccxt_symbol).fetch_ohlcv(ccxt_symbol, timeframe=timeframe, limit=limit)
+        return [
+            Candle(ts=int(r[0]), open=float(r[1]), high=float(r[2]),
+                   low=float(r[3]), close=float(r[4]), volume=float(r[5]))
+            for r in rows
+        ]
+
+
 def build_market_data(config) -> MarketData:
     """Construct the live market-data client from a :class:`Config`."""
-    return CcxtMarketData(
-        exchange=config.exchange,
-        api_key=config.secret("BINANCE_API_KEY"),
-        api_secret=config.secret("BINANCE_API_SECRET"),
+    return RoutingMarketData(
+        default_exchange=config.exchange,
+        symbol_exchanges=config.symbol_exchanges,
     )

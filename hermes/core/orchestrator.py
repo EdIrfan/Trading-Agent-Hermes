@@ -8,6 +8,7 @@ business logic lives in the component it belongs to.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -22,6 +23,8 @@ from hermes.data.symbols import SymbolMap
 from hermes.portfolio.ledger import Ledger
 from hermes.portfolio.portfolio import Portfolio
 from hermes.risk.manager import RiskManager
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -71,12 +74,22 @@ class Orchestrator:
         self.symbol_maps: list[SymbolMap] = config.symbol_maps
 
     def run_cycle(self, *, dry_run: bool = False) -> CycleResult:
-        prices = {m.base: self.broker.get_price(m.ccxt) for m in self.symbol_maps}
+        # Fetch prices per coin; skip any coin whose feed hiccups so one bad
+        # symbol can't kill the whole cycle (or a long-running loop).
+        prices: dict[str, float] = {}
+        active: list[SymbolMap] = []
+        for m in self.symbol_maps:
+            try:
+                prices[m.base] = self.broker.get_price(m.ccxt)
+                active.append(m)
+            except Exception as e:  # noqa: BLE001 - degrade gracefully, log and continue
+                logger.warning("Skipping %s this cycle: %s", m.ccxt, e)
+
         value_before = self.portfolio.value(prices)
         trade_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         assets: list[AssetCycle] = []
-        for m in self.symbol_maps:
+        for m in active:
             snapshot = build_live_snapshot(
                 self.market, m, self.config.candle_timeframe, self.config.candle_lookback
             )

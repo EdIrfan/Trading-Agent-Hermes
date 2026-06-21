@@ -10,6 +10,7 @@ SYM = parse_symbol("BTC/USDT")
 
 def _config(**over):
     base = {
+        "strategy": "target_weight",
         "symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT"],
         "max_total_exposure": 0.80,   # / 4 coins -> 0.20 sleeve each
         "max_position_pct": 0.40,
