@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes"
+version = "0.1.0"
+description = "Hermes — AI-driven crypto trading on top of TradingAgents (DEV paper / PROD Binance)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # The "brain" — installed as a local editable dependency (see [tool.uv.sources]
+    # or install with: pip install -e ../TradingAgents). Kept un-edited so we can
+    # pull upstream updates; all coupling lives in hermes/brain/.
+    "tradingagents",
+    # Exchange access (live prices in DEV; real orders in PROD). ccxt keeps us
+    # exchange-agnostic (decision D2).
+    "ccxt>=4.4.0",
+    # CLI + config + data shapes.
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+hermes = "hermes.cli.main:app"
+
+[tool.setuptools.packages.find]
+include = ["hermes*"]
+
+# When installing with uv, this points the `tradingagents` dependency at the
+# sibling checkout. With plain pip, instead run:  pip install -e ../TradingAgents
+[tool.uv.sources]
+tradingagents = { path = "../TradingAgents", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "C4", "SIM"]
+ignore = ["E501"]

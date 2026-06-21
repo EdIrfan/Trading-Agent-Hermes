@@ -1,0 +1,24 @@
+# Secrets — NEVER commit these. Each environment has its own .env.<env>.
+.env
+.env.*
+!.env.*.example
+
+# Per-environment runtime state (portfolios, ledgers, decision logs).
+state/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
