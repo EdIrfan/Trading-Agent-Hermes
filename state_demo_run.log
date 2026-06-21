@@ -1,0 +1,2 @@
+Generating demo data: env=demo basket=['BTC', 'ETH', 'SOL', 'BNB'] for 60 min every 60s. CSV -> /home/irfanxlin/GitHub/Trading Agent/Hermes/state/demo/equity_curve.csv
+[001] 2026-06-21T14:03:58Z value=10,000.00 ret=+0.00% trades=0 [—]

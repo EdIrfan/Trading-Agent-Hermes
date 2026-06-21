@@ -1,15 +1,15 @@
-"""One trading cycle: data → brain → risk → broker → portfolio → record.
+"""One trading cycle across the basket: data → brain → risk → broker → record.
 
-Pure coordination — every piece of business logic lives in the component it
-belongs to. ``--dry-run`` runs the whole cycle but stops short of placing the
-order, printing what *would* happen (a key PROD safeguard, exercised in DEV).
+For each coin: fetch its live price, run the brain, size against the target
+weight, execute (unless ``--dry-run``). Pure coordination — every piece of
+business logic lives in the component it belongs to.
 """
 
 from __future__ import annotations
 
 import json
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 
 from hermes.brain.base import Brain
@@ -18,24 +18,35 @@ from hermes.core.config import Config
 from hermes.core.models import Decision, Fill, Order
 from hermes.data.market import MarketData
 from hermes.data.snapshot import build_live_snapshot
-from hermes.data.symbols import SymbolMap, parse_symbol
+from hermes.data.symbols import SymbolMap
 from hermes.portfolio.ledger import Ledger
 from hermes.portfolio.portfolio import Portfolio
 from hermes.risk.manager import RiskManager
 
 
 @dataclass
-class CycleResult:
+class AssetCycle:
+    """What happened for one coin this cycle."""
+
     symbol: str
+    base: str
     price: float
     decision: Decision
     risk_reason: str
     order: Order | None
     fill: Fill | None
-    dry_run: bool
-    value_before: float
-    value_after: float
-    ts: float
+
+
+@dataclass
+class CycleResult:
+    assets: list[AssetCycle] = field(default_factory=list)
+    value_before: float = 0.0
+    value_after: float = 0.0
+    ts: float = field(default_factory=time.time)
+
+    @property
+    def fills(self) -> list[Fill]:
+        return [a.fill for a in self.assets if a.fill is not None]
 
 
 class Orchestrator:
@@ -57,73 +68,73 @@ class Orchestrator:
         self.risk = risk
         self.portfolio = portfolio
         self.ledger = ledger
-        self.symbols: SymbolMap = parse_symbol(config.symbol)
+        self.symbol_maps: list[SymbolMap] = config.symbol_maps
 
     def run_cycle(self, *, dry_run: bool = False) -> CycleResult:
-        base = self.symbols.base
-        price = self.broker.get_price(self.symbols.ccxt)
-        prices = {base: price}
+        prices = {m.base: self.broker.get_price(m.ccxt) for m in self.symbol_maps}
         value_before = self.portfolio.value(prices)
-
-        snapshot = build_live_snapshot(
-            self.market, self.symbols, self.config.candle_timeframe,
-            self.config.candle_lookback,
-        )
         trade_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-        decision = self.brain.decide(
-            symbols=self.symbols,
-            trade_date=trade_date,
-            live_snapshot=snapshot,
-            past_context=self._portfolio_summary(prices),
-        )
+        assets: list[AssetCycle] = []
+        for m in self.symbol_maps:
+            snapshot = build_live_snapshot(
+                self.market, m, self.config.candle_timeframe, self.config.candle_lookback
+            )
+            decision = self.brain.decide(
+                symbols=m, trade_date=trade_date, live_snapshot=snapshot,
+                past_context=self._portfolio_summary(prices),
+            )
+            result = self.risk.decide_order(decision, self.portfolio, m, prices)
+            fill: Fill | None = None
+            if result.order is not None and not dry_run:
+                fill = self.broker.place_order(result.order)
+                self.portfolio.apply_fill(fill)
+                self.ledger.record(fill)
+            assets.append(AssetCycle(
+                symbol=m.ccxt, base=m.base, price=prices[m.base], decision=decision,
+                risk_reason=result.reason, order=result.order, fill=fill,
+            ))
 
-        result = self.risk.decide_order(decision, self.portfolio, self.symbols, price)
-        order = result.order
-        fill: Fill | None = None
-
-        if order is not None and not dry_run:
-            fill = self.broker.place_order(order)
-            self.portfolio.apply_fill(fill)
-            self.ledger.record(fill)
+        if not dry_run and any(a.fill for a in assets):
             self.portfolio.save(self.config.portfolio_path)
 
-        value_after = self.portfolio.value({base: price})
         cycle = CycleResult(
-            symbol=self.symbols.ccxt, price=price, decision=decision,
-            risk_reason=result.reason, order=order, fill=fill, dry_run=dry_run,
-            value_before=value_before, value_after=value_after, ts=time.time(),
+            assets=assets, value_before=value_before,
+            value_after=self.portfolio.value(prices), ts=time.time(),
         )
         self._record(cycle)
         return cycle
 
     def _portfolio_summary(self, prices: dict[str, float]) -> str:
-        base = self.symbols.base
+        held = ", ".join(
+            f"{p.quantity:.6f} {b} ({self.portfolio.weight(b, prices):.0%})"
+            for b, p in self.portfolio.positions.items() if p.quantity > 0
+        ) or "no coins"
         return (
             f"Current paper portfolio: cash {self.portfolio.cash:,.2f} "
-            f"{self.config.quote_currency}, holding {self.portfolio.quantity(base):.6f} "
-            f"{base} ({self.portfolio.weight(base, prices):.0%} of value), "
-            f"total value {self.portfolio.value(prices):,.2f} "
-            f"{self.config.quote_currency}."
+            f"{self.config.quote_currency}; holding {held}; total value "
+            f"{self.portfolio.value(prices):,.2f} {self.config.quote_currency}."
         )
 
     def _record(self, cycle: CycleResult) -> None:
         """Persist a full decision+outcome record for the audit trail."""
         self.config.decisions_dir.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.fromtimestamp(cycle.ts, tz=timezone.utc).strftime(
-            "%Y%m%dT%H%M%SZ"
-        )
+        stamp = datetime.fromtimestamp(cycle.ts, tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         path = self.config.decisions_dir / f"{stamp}.json"
         record = {
             "ts": cycle.ts,
-            "symbol": cycle.symbol,
-            "price": cycle.price,
-            "dry_run": cycle.dry_run,
-            "decision": asdict(cycle.decision),
-            "risk_reason": cycle.risk_reason,
-            "order": asdict(cycle.order) if cycle.order else None,
-            "fill": asdict(cycle.fill) if cycle.fill else None,
             "value_before": cycle.value_before,
             "value_after": cycle.value_after,
+            "assets": [
+                {
+                    "symbol": a.symbol,
+                    "price": a.price,
+                    "decision": asdict(a.decision),
+                    "risk_reason": a.risk_reason,
+                    "order": asdict(a.order) if a.order else None,
+                    "fill": asdict(a.fill) if a.fill else None,
+                }
+                for a in cycle.assets
+            ],
         }
         path.write_text(json.dumps(record, indent=2, default=str))

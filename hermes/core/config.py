@@ -16,8 +16,19 @@ from typing import Any
 import yaml
 from dotenv import dotenv_values
 
+from hermes.data.symbols import SymbolMap, parse_symbol
+
 # Hermes/ project root (two levels up from this file: hermes/core/config.py).
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _default_symbols() -> list[str]:
+    return ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT"]
+
+
+def _default_sleeve_fill() -> dict[str, float | None]:
+    # Rating -> how full to make this coin's equal-weight sleeve.
+    return {"Buy": 1.0, "Overweight": 0.70, "Hold": None, "Underweight": 0.35, "Sell": 0.0}
 
 
 @dataclass
@@ -41,9 +52,9 @@ class Config:
     starting_cash: float = 10000.0
     quote_currency: str = "USDT"
 
-    # Market data
+    # Market data — a basket of coins (multi-asset).
     exchange: str = "binance"
-    symbol: str = "BTC/USDT"
+    symbols: list[str] = field(default_factory=_default_symbols)
     candle_timeframe: str = "1h"
     candle_lookback: int = 200
 
@@ -51,9 +62,13 @@ class Config:
     taker_fee_rate: float = 0.001
     slippage_rate: float = 0.0005
 
-    # Risk / sizing
-    target_weights: dict[str, float | None] = field(default_factory=dict)
-    max_position_pct: float = 0.80
+    # Risk / sizing (decision D4 — target-weight, long-only, equal-weight sleeves)
+    # Each coin gets an equal sleeve = max_total_exposure / N; its rating sets
+    # how full that sleeve is (``sleeve_fill``). ``max_position_pct`` is a hard
+    # per-coin ceiling on portfolio weight.
+    max_total_exposure: float = 0.80
+    max_position_pct: float = 0.40
+    sleeve_fill: dict[str, float | None] = field(default_factory=_default_sleeve_fill)
     min_order_notional: float = 10.0
     rebalance_threshold_pct: float = 0.05
 
@@ -66,9 +81,13 @@ class Config:
     analysts: list[str] = field(default_factory=lambda: ["market", "social", "news"])
 
     @property
-    def base_currency(self) -> str:
-        """Base asset of the configured pair (e.g. 'BTC' from 'BTC/USDT')."""
-        return self.symbol.split("/")[0]
+    def symbol_maps(self) -> list[SymbolMap]:
+        """The basket as resolved :class:`SymbolMap` objects."""
+        return [parse_symbol(s) for s in self.symbols]
+
+    @property
+    def num_assets(self) -> int:
+        return len(self.symbols)
 
     @property
     def state_dir(self) -> Path:
@@ -99,12 +118,12 @@ class Config:
 
 # Fields on Config that may be overridden by a matching YAML key.
 _OVERRIDABLE = {
-    "broker", "starting_cash", "quote_currency", "exchange", "symbol",
+    "broker", "starting_cash", "quote_currency", "exchange", "symbols",
     "candle_timeframe", "candle_lookback", "taker_fee_rate", "slippage_rate",
-    "target_weights", "max_position_pct", "min_order_notional",
-    "rebalance_threshold_pct", "llm_provider", "deep_think_llm",
-    "quick_think_llm", "max_debate_rounds", "max_risk_discuss_rounds",
-    "analysts",
+    "max_total_exposure", "max_position_pct", "sleeve_fill",
+    "min_order_notional", "rebalance_threshold_pct", "llm_provider",
+    "deep_think_llm", "quick_think_llm", "max_debate_rounds",
+    "max_risk_discuss_rounds", "analysts",
 }
 
 

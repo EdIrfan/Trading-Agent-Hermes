@@ -19,7 +19,6 @@ from rich.table import Table
 from hermes.core.config import load_config
 from hermes.core.factory import build_market_data, build_orchestrator
 from hermes.core.orchestrator import CycleResult
-from hermes.data.symbols import parse_symbol
 from hermes.portfolio.ledger import Ledger
 from hermes.portfolio.portfolio import Portfolio
 
@@ -46,7 +45,7 @@ def run(
     dry_run: bool = typer.Option(False, help="Do everything except place the order."),
     mock: bool = typer.Option(False, help="Force the MockBrain (no LLM/API key)."),
 ):
-    """Run one trading cycle (or loop on --interval)."""
+    """Run one trading cycle over the basket (or loop on --interval)."""
     config = load_config(env)
     if config.broker != "paper":
         _confirm_real_money(config)
@@ -54,7 +53,7 @@ def run(
     orch = build_orchestrator(config, force_mock=mock)
     console.print(
         f"[bold]Hermes[/bold] env=[cyan]{env}[/cyan] broker=[cyan]{config.broker}[/cyan] "
-        f"symbol=[cyan]{config.symbol}[/cyan] brain=[cyan]{orch.brain.name}[/cyan]"
+        f"basket=[cyan]{', '.join(config.symbols)}[/cyan] brain=[cyan]{orch.brain.name}[/cyan]"
     )
     if orch.brain.name == "mock":
         console.print(
@@ -67,52 +66,56 @@ def run(
         console.print(f"Looping every {interval} ({seconds}s). Ctrl-C to stop.")
         try:
             while True:
-                _render_cycle(orch.run_cycle(dry_run=dry_run))
+                _render_cycle(orch.run_cycle(dry_run=dry_run), dry_run)
                 time.sleep(seconds)
         except KeyboardInterrupt:
             console.print("\n[dim]Stopped.[/dim]")
     else:
-        _render_cycle(orch.run_cycle(dry_run=dry_run))
+        _render_cycle(orch.run_cycle(dry_run=dry_run), dry_run)
 
 
 @app.command()
 def portfolio(
     env: str = typer.Option("dev", help="Environment."),
 ):
-    """Show balance, holdings, and P&L (marked to the live price)."""
+    """Show balance, per-coin holdings, and P&L (marked to live prices)."""
     config = load_config(env)
     pf = Portfolio.load(
         config.portfolio_path, starting_cash=config.starting_cash,
         quote_currency=config.quote_currency,
     )
-    symbols = parse_symbol(config.symbol)
-    try:
-        price = build_market_data(config).get_price(symbols.ccxt)
-    except Exception as e:  # noqa: BLE001 - show why pricing failed, keep going
-        console.print(f"[yellow]Could not fetch live price ({e}); using cost basis.[/yellow]")
-        price = pf.positions.get(symbols.base).avg_cost if pf.positions.get(symbols.base) else 0.0
+    prices = _live_prices(config, pf)
 
-    prices = {symbols.base: price}
-    value = pf.value(prices)
-    table = Table(title=f"Portfolio — {env}", show_header=False, box=None)
-    table.add_row("Cash", f"{pf.cash:,.2f} {config.quote_currency}")
-    table.add_row(
-        f"{symbols.base} held",
-        f"{pf.quantity(symbols.base):.6f}  (@ {price:,.2f}, "
-        f"{pf.weight(symbols.base, prices):.0%} of value)",
-    )
-    table.add_row("Total value", f"[bold]{value:,.2f} {config.quote_currency}[/bold]")
-    table.add_row("Total return", _pnl(pf.total_return(prices) * 100, suffix="%"))
-    table.add_row("Realized P&L", _pnl(pf.realized_pnl, suffix=f" {config.quote_currency}"))
-    table.add_row("Unrealized P&L", _pnl(pf.unrealized_pnl(prices), suffix=f" {config.quote_currency}"))
-    table.add_row("Fees paid", f"{pf.fees_paid:,.2f} {config.quote_currency}")
+    table = Table(title=f"Portfolio — {env}")
+    for col in ("asset", "quantity", "price", "value", "weight", "avg cost", "unrl P&L"):
+        table.add_column(col)
+    for m in config.symbol_maps:
+        pos = pf.positions.get(m.base)
+        qty = pos.quantity if pos else 0.0
+        px = prices.get(m.base, 0.0)
+        upnl = (px - (pos.avg_cost if pos else 0.0)) * qty
+        table.add_row(
+            m.base, f"{qty:.6f}", f"{px:,.2f}", f"{qty * px:,.2f}",
+            f"{pf.weight(m.base, prices):.1%}",
+            f"{(pos.avg_cost if pos else 0.0):,.2f}", _pnl(upnl),
+        )
     console.print(table)
+
+    value = pf.value(prices)
+    summary = Table(show_header=False, box=None)
+    summary.add_row("Cash", f"{pf.cash:,.2f} {config.quote_currency}")
+    summary.add_row("Total value", f"[bold]{value:,.2f} {config.quote_currency}[/bold]")
+    summary.add_row("Total return", _pnl(pf.total_return(prices) * 100, suffix="%"))
+    summary.add_row("Realized P&L", _pnl(pf.realized_pnl, suffix=f" {config.quote_currency}"))
+    summary.add_row("Unrealized P&L", _pnl(pf.unrealized_pnl(prices), suffix=f" {config.quote_currency}"))
+    summary.add_row("Fees paid", f"{pf.fees_paid:,.2f} {config.quote_currency}")
+    console.print(summary)
 
 
 @app.command()
 def history(
     env: str = typer.Option("dev", help="Environment."),
-    limit: int = typer.Option(20, help="How many recent fills to show."),
+    limit: int = typer.Option(30, help="How many recent fills to show."),
 ):
     """Show recent trades from the ledger."""
     config = load_config(env)
@@ -135,27 +138,35 @@ def history(
 
 
 # --------------------------------------------------------------------------
-def _render_cycle(cycle: CycleResult) -> None:
-    d = cycle.decision
-    lines = [
-        f"[bold]{cycle.symbol}[/bold] @ [bold]{cycle.price:,.2f}[/bold]   "
-        f"brain=[cyan]{d.source}[/cyan]",
-        f"Rating: [bold]{d.rating}[/bold]  →  Action: [bold]{d.action.value}[/bold]",
-        "",
-        f"Risk: {cycle.risk_reason}",
-    ]
-    if cycle.order is not None:
-        if cycle.dry_run:
-            lines.append(
-                f"[yellow]DRY RUN[/yellow] — would {cycle.order.side.value} "
-                f"{cycle.order.quantity:.6f} {cycle.symbol.split('/')[0]} (not placed)."
+def _live_prices(config, pf) -> dict[str, float]:
+    """Live prices for the basket; fall back to cost basis if a fetch fails."""
+    try:
+        market = build_market_data(config)
+        return {m.base: market.get_price(m.ccxt) for m in config.symbol_maps}
+    except Exception as e:  # noqa: BLE001 - report and degrade gracefully
+        console.print(f"[yellow]Could not fetch live prices ({e}); using cost basis.[/yellow]")
+        return {b: p.avg_cost for b, p in pf.positions.items()}
+
+
+def _render_cycle(cycle: CycleResult, dry_run: bool = False) -> None:
+    lines = []
+    for a in cycle.assets:
+        head = (
+            f"[bold]{a.symbol}[/bold] @ {a.price:,.2f}  "
+            f"[bold]{a.decision.rating}[/bold]→{a.decision.action.value}"
+        )
+        if a.order is not None and dry_run:
+            head += (
+                f"  [yellow]DRY[/yellow] would {a.order.side.value} {a.order.quantity:.6f}"
             )
-        elif cycle.fill is not None:
-            f = cycle.fill
-            lines.append(
-                f"[green]FILLED[/green] {f.side.value} {f.quantity:.6f} @ "
-                f"{f.price:,.2f}  fee {f.fee:,.2f}  (order {f.order_id})."
+        elif a.fill is not None:
+            head += (
+                f"  [green]{a.fill.side.value} {a.fill.quantity:.6f} @ "
+                f"{a.fill.price:,.2f}[/green] (fee {a.fill.fee:,.2f})"
             )
+        else:
+            head += "  [dim]—[/dim]"
+        lines.append(head)
     lines.append("")
     lines.append(
         f"Portfolio value: {cycle.value_before:,.2f} → "

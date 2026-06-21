@@ -11,34 +11,39 @@ quote_currency: USDT
 
 # ---- Exchange / market data ----
 exchange: binance
-symbol: BTC/USDT                 # ccxt unified symbol
+# The basket. Each coin gets an equal-weight sleeve (see sizing below).
+symbols:
+  - BTC/USDT
+  - ETH/USDT
+  - SOL/USDT
+  - BNB/USDT
 candle_timeframe: 1h
 candle_lookback: 200             # recent candles fed to the brain snapshot
 
 # ---- Paper-trading frictions (decision D6) ----
-# Modeled so DEV results aren't unrealistically rosy.
 taker_fee_rate: 0.001            # 0.1% Binance spot taker fee
-slippage_rate: 0.0005           # 0.05% assumed slippage on market orders
+slippage_rate: 0.0005            # 0.05% assumed slippage on market orders
 
-# ---- Risk / sizing (decision D4 — target-weight, long-only, single asset) ----
-# Each 5-tier rating maps to a target % of portfolio value held in the asset;
-# Hermes trades the difference. Conservative caps to start.
-target_weights:
-  Buy: 0.80
-  Overweight: 0.60
-  Hold: null                     # null = leave current weight unchanged
-  Underweight: 0.30
+# ---- Risk / sizing (decision D4 — multi-asset target-weight, long-only) ----
+# Crypto exposure is capped at max_total_exposure and split into equal sleeves
+# (max_total_exposure / number_of_coins). Each coin's rating sets how full its
+# sleeve is via sleeve_fill. Example: 80% / 4 coins = 20% sleeve each; a "Buy"
+# fills it (20% of portfolio in that coin), "Overweight" 70% of the sleeve, etc.
+max_total_exposure: 0.80         # max fraction of portfolio held in crypto overall
+max_position_pct: 0.40           # hard per-coin ceiling on portfolio weight
+sleeve_fill:
+  Buy: 1.0
+  Overweight: 0.70
+  Hold: null                     # null = leave this coin's weight unchanged
+  Underweight: 0.35
   Sell: 0.0
-max_position_pct: 0.80           # hard cap: never more than 80% in the asset
 min_order_notional: 10.0         # skip orders smaller than this (Binance min lot guard)
 rebalance_threshold_pct: 0.05    # ignore target/actual gaps smaller than 5% (avoid churn)
 
 # ---- LLM (the brain) ----
 llm_provider: anthropic
-# DEV iteration uses the cheap tier; switch to opus/sonnet for quality runs.
-deep_think_llm: claude-sonnet-4-6
+deep_think_llm: claude-sonnet-4-6     # DEV iteration tier; opus/sonnet for quality runs
 quick_think_llm: claude-haiku-4-5
 max_debate_rounds: 1
 max_risk_discuss_rounds: 1
-# Which analysts to run. Fundamentals is auto-dropped for crypto by the brain.
-analysts: [market, social, news]
+analysts: [market, social, news]      # fundamentals auto-dropped for crypto by the brain
