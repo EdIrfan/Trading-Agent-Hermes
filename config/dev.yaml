@@ -40,9 +40,12 @@ max_position_notional: 2000.0   # hard per-coin cap (max held in any one coin)
 min_order_notional: 10.0        # skip dust orders (Binance min-lot guard)
 
 # ---- LLM (the brain) ----
-llm_provider: anthropic
-deep_think_llm: claude-sonnet-4-6     # DEV iteration tier; opus/sonnet for quality runs
-quick_think_llm: claude-haiku-4-5
-max_debate_rounds: 1
+# Using Google Gemini on the FREE tier for testing. gemini-2.5-flash has the
+# most generous free limits; both slots use it to stay within quota. Key goes in
+# .env.dev as GOOGLE_API_KEY (free key from https://aistudio.google.com/apikey).
+llm_provider: google
+deep_think_llm: gemini-2.5-flash      # bump to gemini-2.5-pro for stronger reasoning (lower free limits)
+quick_think_llm: gemini-2.5-flash
+max_debate_rounds: 1                  # keep at 1 on free tier — each round = more API calls
 max_risk_discuss_rounds: 1
 analysts: [market, social, news]      # fundamentals auto-dropped for crypto by the brain

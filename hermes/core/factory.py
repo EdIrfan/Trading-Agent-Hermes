@@ -8,6 +8,8 @@ MockBrain so the loop still runs.
 
 from __future__ import annotations
 
+import os
+
 from hermes.brain.base import Brain
 from hermes.brain.mock import MockBrain
 from hermes.core.config import Config
@@ -17,11 +19,34 @@ from hermes.portfolio.ledger import Ledger
 from hermes.portfolio.portfolio import Portfolio
 from hermes.risk.manager import RiskManager
 
+# Which env var holds each LLM provider's API key (mirrors TradingAgents'
+# tradingagents/llm_clients/api_key_env.py).
+_PROVIDER_KEY_ENV = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "google": "GOOGLE_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "xai": "XAI_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+}
+
+
+def llm_key_env(provider: str) -> str:
+    return _PROVIDER_KEY_ENV.get(provider.lower(), "")
+
 
 def choose_brain(config: Config, *, force_mock: bool = False) -> Brain:
-    """Real brain when a key is available and not forced off; else MockBrain."""
-    if force_mock or not config.secret("ANTHROPIC_API_KEY"):
+    """Real brain when the provider's API key is available; else MockBrain.
+
+    The key lives in ``.env.<env>`` (loaded into ``config.secrets``). The
+    TradingAgents framework / LangChain read it from ``os.environ``, so we export
+    it here before constructing the real brain.
+    """
+    key_env = llm_key_env(config.llm_provider)
+    key = config.secret(key_env) if key_env else None
+    if force_mock or not key:
         return MockBrain()
+    os.environ[key_env] = key  # export so the framework can authenticate
     from hermes.brain.tradingagents import TradingAgentsBrain
 
     return TradingAgentsBrain(config)

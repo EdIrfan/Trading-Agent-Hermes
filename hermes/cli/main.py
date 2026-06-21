@@ -44,9 +44,15 @@ def run(
     interval: str | None = typer.Option(None, help="Loop on this cadence, e.g. 4h. Overrides --once."),
     dry_run: bool = typer.Option(False, help="Do everything except place the order."),
     mock: bool = typer.Option(False, help="Force the MockBrain (no LLM/API key)."),
+    symbols: str | None = typer.Option(
+        None, help="Override the basket for this run, e.g. 'BTC/USDT' or 'BTC/USDT,ETH/USDT'. "
+                   "Handy for testing the real brain on one coin to save free-tier quota."
+    ),
 ):
     """Run one trading cycle over the basket (or loop on --interval)."""
     config = load_config(env)
+    if symbols:
+        config.symbols = [s.strip() for s in symbols.split(",") if s.strip()]
     if config.broker != "paper":
         _confirm_real_money(config)
 

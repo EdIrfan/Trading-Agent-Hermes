@@ -58,12 +58,19 @@ PROD ones (D9, D10) can wait.
   [environments.md](environments.md) and `hermes/data/market.py`.
 - **Impact:** `risk/` core logic + multi-exchange `data/`. **Done.**
 
-## D5 — LLM provider & model for the brain ✅ RESOLVED
-- **Decision:** **Anthropic (Claude).** `llm_provider = "anthropic"`.
-  - **DEV iteration (cheap):** `deep_think_llm = claude-sonnet-4-6`,
-    `quick_think_llm = claude-haiku-4-5`.
-  - **Quality runs (once it works):** `deep_think_llm = claude-opus-4-8`,
-    `quick_think_llm = claude-sonnet-4-6`.
+## D5 — LLM provider & model for the brain ✅ RESOLVED (revised → Gemini, 2026-06-21)
+- **Current decision: Google Gemini, FREE tier, for testing.**
+  `llm_provider = "google"`, both slots `gemini-2.5-flash` (most generous free
+  limits). Free key (no billing) from https://aistudio.google.com/apikey, pasted
+  into `.env.dev` as `GOOGLE_API_KEY`. Chosen so we can test the real brain at
+  zero cost. **Caveat:** free-tier rate limits (~RPM/RPD) make this good for a
+  handful of manual `--once` runs, not continuous looping or the full 5-coin
+  basket per cycle — use `hermes run --symbols BTC/USDT` to test one coin.
+- **Original/alternative: Anthropic (Claude)** — `llm_provider = "anthropic"`,
+  `deep=claude-sonnet-4-6 / quick=claude-haiku-4-5` for DEV iteration,
+  `opus-4-8 / sonnet-4-6` for quality. Switch back by changing `config/dev.yaml`
+  + setting `ANTHROPIC_API_KEY`. The brain selection is provider-aware
+  (`factory.llm_key_env`).
 - **⚠️ CRITICAL PREREQUISITE:** TradingAgents calls the Anthropic **API** directly
   via an `ANTHROPIC_API_KEY`. This is a **separate, paid, pay-per-token credential**
   from a console.anthropic.com account — it is **NOT** the same as the user's
@@ -136,8 +143,8 @@ accordingly before writing code.
   - D3 inject a **verified live snapshot** into the brain (option B).
   - D4 **REVISED → `fixed_notional`** ($100/trade) over a **5-coin basket**
     (BTC/ETH/SOL/BNB/HYPE), long-only. See D4 above.
-  - D5 **Anthropic/Claude** — Sonnet 4.6 + Haiku 4.5 for DEV iteration, Opus 4.8 +
-    Sonnet 4.6 for quality runs. **Needs an `ANTHROPIC_API_KEY` (paid) — pending.**
+  - D5 **REVISED → Google Gemini FREE tier** (`gemini-2.5-flash`) for testing;
+    key `GOOGLE_API_KEY` in `.env.dev`. Anthropic kept as an alternative. See D5.
   - D6 model **fees + small slippage** from day one.
   - D7 **SQLite** ledger + **JSON** snapshots/decisions.
   - D8 start `--once`, then a simple in-process loop at **4h** for DEV.
