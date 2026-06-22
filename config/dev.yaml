@@ -49,8 +49,8 @@ llm_provider: google
 # (A restricted "AQ."-prefixed key gives almost none — regenerate a standard key
 # at https://aistudio.google.com/apikey if runs hit quota limits immediately.)
 # For high-frequency loops use --mock / the demo, which need no quota.
-deep_think_llm: gemini-2.5-flash      # gemini-2.5-flash-lite has higher free RPD if you need more runs
-quick_think_llm: gemini-2.5-flash
+deep_think_llm: gemini-3.1-flash-lite   # 500 req/day free on this key (vs 20 for 3.5-flash)
+quick_think_llm: gemini-3.1-flash-lite
 max_debate_rounds: 1                  # each round = more API calls; keep at 1 on free tier
 max_risk_discuss_rounds: 1
 # market = technical/price, social = sentiment. "news" omitted — its macro tool
