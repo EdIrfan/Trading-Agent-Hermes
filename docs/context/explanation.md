@@ -142,26 +142,39 @@ GitHub/
 
 ## 6. What "go over and beyond" looks like (the north star)
 
-Concretely, a finished Hermes lets you do this:
+**This is now built.** Concretely, you can do this today:
 
 ```bash
-# DEV: run the AI on live BTC data, paper-trade the decision, every 4 hours
-hermes run --env dev --symbol BTCUSDT --interval 4h
+# DEV: run the AI on all 5 live coins, paper-trade the decision, once
+hermes run --env dev
 
-# See how the fake portfolio is doing
+# Loop on a 4-hour cadence (realistic — gives the market time to move between decisions)
+hermes run --env dev --interval 4h
+
+# See the fake portfolio: holdings, P&L, unrealized gains
 hermes portfolio --env dev
 
-# Look at every decision and trade it made, with reasoning
+# Look at every trade it made
 hermes history --env dev
+
+# The key question: did the AI beat just buying and holding the coins?
+hermes report --env dev
 ```
 
-…and later, when DEV has proven itself, the same command with `--env prod`
-trades real money on Binance.
+Capital: **$1,000 starting cash, $10 per trade** — matching the real amount you plan
+to use, so DEV results are directly comparable to what PROD would look like.
 
-Along the way we get: a dashboard of P&L, a record of every decision and *why*
-the AI made it, safety guardrails (max position size, daily loss limits,
-kill-switch), and a backtest mode to replay history. All of that is detailed in
-[plan.md](plan.md).
+…and later, when DEV has earned your trust, the same commands with `--env prod`
+trade real money on Binance — just a config flip, no code changes.
+
+**Safety guardrails already in place:**
+- **Daily-loss circuit breaker** — if the portfolio drops >5% in a day, new buys are
+  automatically blocked for the rest of that UTC day (sells still allowed). No AI
+  decision can override this.
+- Hard per-coin position cap ($200), min-order floor ($5), cash-limited sizing.
+- `--dry-run` mode for risk-free testing; `--mock` to skip the LLM entirely.
+
+All of that is detailed in [plan.md](plan.md).
 
 ---
 
@@ -174,9 +187,11 @@ kill-switch), and a backtest mode to replay history. All of that is detailed in
 - **Not high-frequency trading.** The brain takes minutes and real LLM API money
   to make one decision (it's a big AI conversation). This is slow, deliberate
   trading — think hours/days between decisions, not milliseconds.
-- **Not free to run.** Every decision burns LLM tokens (real cost) — see
-  [extras.md](extras.md) for the money math.
-- **Not safe to point at real money yet.** We build DEV first, on purpose.
+- **Not free to run** on paid models. Each analysis costs LLM tokens — see
+  [extras.md](extras.md) for the money math. On the **Gemini free tier** (500
+  req/day), the first ~35 analyses per day are completely free.
+- **Not safe to point at real money yet.** We build DEV first, on purpose. The circuit
+  breaker and guards are there, but DEV must earn trust over time before PROD.
 
 Next: skim [concepts.md](concepts.md), then read [context.md](context.md) to see
 how the brain works under the hood.

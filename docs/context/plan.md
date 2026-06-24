@@ -87,13 +87,14 @@ Read [explanation.md](explanation.md), [context.md](context.md), and
 - Translate each coin's rating into a **concrete order quantity** given current
   portfolio state. Two strategies (`config.strategy`, decision D4):
   - **`fixed_notional`** (default): Buy/Overweight → buy a fixed `trade_notional`
-    ($100) of the coin if under the per-coin cap and cash allows; Underweight →
+    (**$10** on **$1,000** starting capital — matches the real amount we plan to
+    use) of the coin if under the per-coin cap and cash allows; Underweight →
     trim one trade's worth; Sell → close the position; Hold → no-op.
   - **`target_weight`**: equal-weight sleeves (each coin targets
     `max_total_exposure / N`), filled per rating.
 - Enforce **hard guardrails** (independent of the AI): per-coin cap
-  (`max_position_notional`), min order size, cash limits. Daily-loss circuit
-  breaker, cooldown, and kill-switch are Phase 3.
+  (`max_position_notional`, **$200**), min order size, cash limits. The
+  **daily-loss circuit breaker is now built** (Phase 3) — see §Phase 3.
 - Long-only and spot-only. Multi-asset basket (BTC/ETH/SOL/BNB/HYPE), each coin
   sized independently each cycle.
 
@@ -209,17 +210,30 @@ Each phase is independently demoable. **We start at Phase 0/1; PROD is late.**
 - `hermes portfolio` and `hermes history`.
 - **Demo:** a full DEV loop that paper-trades BTC on live prices and shows P&L.
 
-### Phase 3 — Scheduling & robustness
-- Scheduler/loop with `--interval`; crash-safety; resume; daily loss limit;
-  reconciliation logic (works against the paper portfolio first).
-- Richer logging/audit trail.
-- **Demo:** leave it running for days; review the decision/trade history.
+### Phase 3 — Scheduling & robustness — IMPLEMENTED (core)
+- Scheduler/loop with `--interval`; graceful Ctrl-C stop.
+- **Daily-loss circuit breaker** (`hermes/risk/circuit_breaker.py`): a
+  portfolio-level kill switch checked once per cycle, *above* the per-coin
+  sizing. If the portfolio falls more than `max_daily_loss_pct` (default 5%)
+  below the UTC day's opening value, it **blocks new buys but still allows
+  sells** (cutting risk is always permitted) for the rest of that day. State
+  persists to `state/<env>/breaker.json`, re-arming at the first cycle of each
+  new UTC day. No single AI decision can override it.
+- Audit trail: per-cycle decision+outcome JSON in `state/<env>/decisions/`.
+- *Still open:* crash-safety/resume across a hard mid-cycle kill, reconciliation
+  (trivial vs the paper portfolio; matters once a real exchange is involved).
+- **Demo:** leave it running on `--interval`; review the decision/trade history.
 
-### Phase 4 — Evaluation
-- Metrics: total/period return, alpha vs buy-and-hold BTC, win rate, drawdown.
-- Optionally wire up real **backtesting** (the unused `backtrader` dep, or a
-  custom replay) to test over history fast.
-- **Demo:** "here's how the strategy did over N weeks of paper trading."
+### Phase 4 — Evaluation — IMPLEMENTED (core)
+- **Equity curve** recorded every cycle to `state/<env>/equity.csv`
+  (`hermes/metrics/equity.py`) — value, cash, and basket prices over time.
+- **Metrics** (`hermes/metrics/performance.py`, shown by `hermes report`):
+  total return, max drawdown, win rate, fees, and the headline **alpha vs an
+  equal-weight buy-and-hold of the basket** over the same window. Alpha is *the*
+  number — being up means nothing if just holding the coins did better.
+- *Still open:* optional **backtesting**/replay over history (future).
+- **Demo:** `hermes report --env dev` after a run — "here's how the strategy did,
+  and whether it beat doing nothing."
 
 ### Phase 5 — TESTNET (real API, fake funds)
 - `BinanceBroker` against Binance Spot Testnet; auth, order formatting, error

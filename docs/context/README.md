@@ -44,11 +44,30 @@ test safely with fake money on real market data) or against **Binance** in
 
 ---
 
-## Current status
+## Current status (as of 2026-06-24)
 
-- ✅ Explored and understood the full TradingAgents repository.
-- ✅ Documentation written (this folder).
-- ⬜ No Hermes code written yet — per your instruction, this pass is **docs only**.
-- ⬜ Open decisions in [decisions.md](decisions.md) still need your answers.
+**Phases 0–4 are fully built and tested.** The system runs end-to-end.
 
-When you're ready to build, start with [todo.md](todo.md) Phase 0.
+- ✅ TradingAgents repo read and understood; all docs written.
+- ✅ Hermes code built: brain adapter, live data (ccxt, Binance + Bybit), PaperBroker,
+  portfolio/ledger (SQLite), risk manager (fixed_notional + target_weight), orchestrator, CLI.
+- ✅ Real brain verified end-to-end: Gemini 3.1 Flash Lite (500 req/day free) runs the full
+  multi-agent pipeline on live BTC prices and paper-trades the decision.
+- ✅ 5-coin basket: BTC, ETH, SOL, BNB, HYPE — HYPE priced via Bybit (not on Binance spot).
+- ✅ **Circuit breaker** (Phase 3): halts new buys if the portfolio drops >5% intraday.
+- ✅ **Performance report** (Phase 4): `hermes report` shows return, max drawdown, win rate,
+  and **alpha vs equal-weight buy-and-hold** — the honest verdict on whether the AI adds value.
+- ✅ Capital set to **$1,000 / $10 trades** to match the real intended live amount.
+- ✅ 36 pytest tests pass; ruff clean.
+- ⬜ Phase 5 (Binance testnet) and Phase 6 (PROD real money) — deliberately not built yet.
+
+**Real results so far (paper trading, 2026-06-22 and 2026-06-24):**
+- Day 1 (Jun 22): 35 runs on BTC, alpha **+0.17%** vs buy-and-hold (strategy −0.08%, BTC −0.25%).
+- Day 2 (Jun 24): 35 runs on BTC, alpha **+0.28%** vs buy-and-hold (strategy −0.03%, BTC −0.32%).
+- Circuit breaker never triggered (intraday drawdown stayed under 0.05%).
+- Both days the AI was cautious: kept ~70–85% in cash, which beat a falling market.
+
+**To resume testing tomorrow:** `hermes run --env dev --symbols BTC/USDT --interval 4h`
+(or re-run the batch: `python scripts/run_real_batch.py --env dev --symbols BTC/USDT`)
+
+All open decisions are resolved — see [decisions.md](decisions.md).

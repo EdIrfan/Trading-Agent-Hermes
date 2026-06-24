@@ -38,8 +38,8 @@ The defining feature: **fake money, real prices.** Step by step, one cycle:
    today)` with that live data made available to the market analyst. The AI team
    deliberates and returns, say, **Buy**.
 3. **Size the trade.** Hermes's risk layer turns "Buy" + the portfolio state
-   (e.g. \$10,000 fake cash) into a concrete order: "buy \$2,000 of BTC ≈
-   0.0311 BTC."
+   (e.g. \$1,000 fake cash) into a concrete order: "buy \$10 of BTC ≈
+   0.00016 BTC." (Fixed-notional strategy: $10/trade, $200 max per coin.)
 4. **Simulate the fill.** `PaperBroker` fills the order at the **real current
    price** (optionally plus modeled slippage and Binance's ~0.1% fee), then:
    - deducts \$2,000 (+ fee) from fake cash,
@@ -140,11 +140,13 @@ Hermes/
 These are designed now even though we build DEV first, so DEV already exercises
 most of them:
 
-- **Hard position limits** — never more than X% of the portfolio in one asset,
+- **Hard position limits** — never more than $200 per coin (20% of $1k capital),
   enforced *outside* the AI. The AI can scream "Buy"; the guard caps the size.
-- **Daily loss limit / circuit breaker** — if the account drops more than Y% in a
-  day, stop trading until you intervene.
-- **Kill-switch** — a single command/flag that halts all new orders immediately.
+- **Daily loss limit / circuit breaker** ✅ BUILT — if the portfolio drops more than
+  5% in a UTC day, **new buys are automatically blocked** (sells still allowed) until
+  midnight UTC. State persists across restarts in `state/<env>/breaker.json`.
+- **Kill-switch** — `--dry-run` runs everything and prints the order it would send
+  without sending it. Ctrl-C stops the loop cleanly.
 - **Dry-run mode** — `--dry-run` runs everything and *prints the order it would
   send* without sending it. The final sanity check before going live.
 - **Idempotent orders** — every order carries a unique client ID so a crash-retry
@@ -187,12 +189,19 @@ never contaminate PROD records:
 Hermes/state/
 ├── dev/
 │   ├── portfolio.json       # fake cash + holdings
-│   ├── ledger.sqlite        # every simulated fill
-│   └── decisions/           # every brain run + reasoning
-├── testnet/...
+│   ├── ledger.sqlite        # every simulated fill (append-only, source of truth)
+│   ├── equity.csv           # portfolio value over time (feeds hermes report)
+│   ├── breaker.json         # daily-loss circuit breaker state (resets each UTC day)
+│   ├── real_runs.csv        # summary of each batch run (when using run_real_batch)
+│   ├── brain_memory/        # TradingAgents reflection/learning files per coin
+│   └── decisions/           # one JSON per cycle: full decision + reasoning + fill
+├── _archive/                # past runs archived here (not deleted, for reference)
+├── testnet/...              # (future)
 └── prod/
     ├── portfolio.json       # mirror of real Binance balance (reconciled)
     ├── ledger.sqlite
+    ├── equity.csv
+    ├── breaker.json
     └── decisions/
 ```
 

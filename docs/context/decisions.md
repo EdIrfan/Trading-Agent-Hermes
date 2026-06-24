@@ -58,32 +58,25 @@ PROD ones (D9, D10) can wait.
   [environments.md](environments.md) and `hermes/data/market.py`.
 - **Impact:** `risk/` core logic + multi-exchange `data/`. **Done.**
 
-## D5 — LLM provider & model for the brain ✅ RESOLVED (revised → Gemini, 2026-06-21)
-- **Current decision: Google Gemini, FREE tier, for testing.**
-  `llm_provider = "google"`, both slots `gemini-2.5-flash` (most generous free
-  limits). Free key (no billing) from https://aistudio.google.com/apikey, pasted
-  into `.env.dev` as `GOOGLE_API_KEY`. Chosen so we can test the real brain at
-  zero cost. **Caveat:** free-tier rate limits (~RPM/RPD) make this good for a
-  handful of manual `--once` runs, not continuous looping or the full 5-coin
-  basket per cycle — use `hermes run --symbols BTC/USDT` to test one coin.
-- **Original/alternative: Anthropic (Claude)** — `llm_provider = "anthropic"`,
-  `deep=claude-sonnet-4-6 / quick=claude-haiku-4-5` for DEV iteration,
-  `opus-4-8 / sonnet-4-6` for quality. Switch back by changing `config/dev.yaml`
-  + setting `ANTHROPIC_API_KEY`. The brain selection is provider-aware
-  (`factory.llm_key_env`).
-- **⚠️ CRITICAL PREREQUISITE:** TradingAgents calls the Anthropic **API** directly
-  via an `ANTHROPIC_API_KEY`. This is a **separate, paid, pay-per-token credential**
-  from a console.anthropic.com account — it is **NOT** the same as the user's
-  Claude Code subscription. Claude Code being installed does **not** give the Python
-  framework access to Claude. **The user must create an `ANTHROPIC_API_KEY` (with
-  billing enabled) before the brain can run.** Status: not yet obtained.
-- **Pricing (per 1M tokens, in/out):** Opus 4.8 $5/$25 · Sonnet 4.6 $3/$15 ·
-  Haiku 4.5 $1/$5. See [extras.md](extras.md) §1 for the per-run cost math.
-- **Open sub-task:** verify TradingAgents' anthropic model catalog
-  (`tradingagents/llm_clients/model_catalog.py`) recognizes these IDs, or use the
-  CLI "Custom model ID" path / set `TRADINGAGENTS_DEEP_THINK_LLM` directly.
-- **Impact:** can't run the brain at all without the API key. **Blocks everything
-  past Phase 0.**
+## D5 — LLM provider & model for the brain ✅ RESOLVED (revised → Gemini, 2026-06-21; model updated 2026-06-22)
+- **Current decision: Google Gemini FREE tier — `gemini-3.1-flash-lite`.**
+  `llm_provider = "google"`, both slots `gemini-3.1-flash-lite`. This gives
+  **500 requests/day free** on the `AQ.`-prefixed key in `.env.dev` as
+  `GOOGLE_API_KEY`. Verified end-to-end: full multi-agent pipeline ran, produced
+  genuine technical analysis, paper-traded. Each BTC analysis ≈ 14 requests →
+  ~35 full analyses/day free.
+  - Note: `gemini-2.5-flash` = 20/day (too low). `gemini-3.1-flash-lite` = 500/day ✅
+  - Cadence: `--interval 4h` is the right daily-use cadence (6 runs/day);
+    back-to-back batch testing exhausts the quota in ~1 hour.
+- **Next step: Anthropic (Claude)** — when you have a paid `ANTHROPIC_API_KEY`:
+  change `config/dev.yaml` → `llm_provider: anthropic`, `deep_think_llm:
+  claude-sonnet-4-6`, `quick_think_llm: claude-haiku-4-5`. The factory is
+  already provider-aware (`factory.llm_key_env`) — it's a one-line config change.
+  - **⚠️ IMPORTANT:** `ANTHROPIC_API_KEY` is a **separate, paid, pay-per-token
+    credential** from console.anthropic.com. It is **NOT** the same as a Claude
+    Code / Claude Pro subscription. You must create a new key with billing enabled.
+  - **Pricing (per 1M tokens, in/out):** Opus 4.8 $5/$25 · Sonnet 4.6 $3/$15 ·
+    Haiku 4.5 $1/$5. See [extras.md](extras.md) §1 for per-run cost math.
 
 ## D6 — Paper-trading realism (fees & slippage)
 - **Question:** In DEV, model **Binance fees** (~0.1%/trade) and **slippage**, or
@@ -134,19 +127,19 @@ like "D2: python-binance, D5: I have an OpenAI key, D8: daily". I'll record your
 answers here (turning each into a ✅ resolved note) and update [todo.md](todo.md)
 accordingly before writing code.
 
-### Resolved
-- **All decisions: go with my recommendations** (user instruction, 2026-06-21),
-  **except D5** which is explicitly set to **Anthropic / Claude** (see D5 above).
-  So the working defaults are now:
-  - D1 Hermes name, local git repo.
-  - D2 **ccxt** for exchange access (multi-exchange: Binance + Bybit for HYPE).
-  - D3 inject a **verified live snapshot** into the brain (option B).
-  - D4 **REVISED → `fixed_notional`** ($100/trade) over a **5-coin basket**
-    (BTC/ETH/SOL/BNB/HYPE), long-only. See D4 above.
-  - D5 **REVISED → Google Gemini FREE tier** (`gemini-2.5-flash`) for testing;
-    key `GOOGLE_API_KEY` in `.env.dev`. Anthropic kept as an alternative. See D5.
-  - D6 model **fees + small slippage** from day one.
-  - D7 **SQLite** ledger + **JSON** snapshots/decisions.
-  - D8 start `--once`, then a simple in-process loop at **4h** for DEV.
-  - D9 / D10 deferred to PROD (conservative placeholders).
-- **The only thing blocking Phase 0→2 now is the Anthropic API key.**
+### Resolved — all decisions final as of 2026-06-22
+
+- D1 Hermes name, local git repo. ✅
+- D2 **ccxt** for exchange access (multi-exchange: Binance default + Bybit for HYPE). ✅
+- D3 inject a **verified live snapshot** into the brain (option B — TradingAgents untouched). ✅
+- D4 **`fixed_notional`** — **$10/trade** over a **5-coin basket** (BTC/ETH/SOL/BNB/HYPE),
+  $200 per-coin cap, $1,000 starting capital. Long-only spot. ✅
+- D5 **Google Gemini FREE tier** — `gemini-3.1-flash-lite` (500 req/day), `GOOGLE_API_KEY`
+  in `.env.dev`. Next step: Anthropic API key ($20 credit) for Claude. ✅
+- D6 model **0.1% fees + 0.05% slippage** from day one (realistic paper trading). ✅
+- D7 **SQLite** ledger (source of truth) + **JSON** portfolio snapshots + **CSV** equity curve. ✅
+- D8 `--once` for manual; `--interval 4h` for the daily loop (implemented). ✅
+- D9 / D10 deferred to PROD (conservative placeholders — not started yet). ⬜
+
+**Nothing is blocking further testing** — Gemini free tier works today. To use Claude/Anthropic
+instead, create an API key at console.anthropic.com (billing enabled, separate from Claude Pro).
