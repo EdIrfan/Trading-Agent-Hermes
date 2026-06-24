@@ -15,8 +15,10 @@ from hermes.brain.mock import MockBrain
 from hermes.core.config import Config
 from hermes.core.orchestrator import Orchestrator
 from hermes.data.market import MarketData, build_market_data
+from hermes.metrics.equity import EquityLog
 from hermes.portfolio.ledger import Ledger
 from hermes.portfolio.portfolio import Portfolio
+from hermes.risk.circuit_breaker import CircuitBreaker
 from hermes.risk.manager import RiskManager
 
 # Which env var holds each LLM provider's API key (mirrors TradingAgents'
@@ -82,7 +84,14 @@ def build_orchestrator(
         quote_currency=config.quote_currency,
     )
     ledger = Ledger(config.ledger_path)
+    equity = EquityLog(config.equity_path)
+    breaker = CircuitBreaker(
+        config.breaker_path,
+        max_daily_loss_pct=config.max_daily_loss_pct,
+        enabled=config.circuit_breaker,
+    )
     return Orchestrator(
         config=config, market=market, brain=brain, broker=broker,
         risk=risk, portfolio=portfolio, ledger=ledger,
+        equity=equity, breaker=breaker,
     )

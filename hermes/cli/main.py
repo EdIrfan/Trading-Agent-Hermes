@@ -19,6 +19,8 @@ from rich.table import Table
 from hermes.core.config import load_config
 from hermes.core.factory import build_market_data, build_orchestrator
 from hermes.core.orchestrator import CycleResult
+from hermes.metrics.equity import EquityLog
+from hermes.metrics.performance import compute_report
 from hermes.portfolio.ledger import Ledger
 from hermes.portfolio.portfolio import Portfolio
 
@@ -143,6 +145,44 @@ def history(
     console.print(table)
 
 
+@app.command()
+def report(
+    env: str = typer.Option("dev", help="Environment."),
+):
+    """Performance report: return, drawdown, win-rate, and alpha vs buy-and-hold."""
+    config = load_config(env)
+    points = EquityLog(config.equity_path).points()
+    fills = Ledger(config.ledger_path).all_fills()
+    rep = compute_report(points, fills)
+    if not rep.has_data:
+        console.print(f"[dim]{rep.note}[/dim]")
+        return
+
+    perf = Table(title=f"Performance — {env}", show_header=False, box=None)
+    perf.add_row("Window", f"{rep.cycles} cycles over {rep.duration_hours:.1f}h")
+    perf.add_row("Value", f"{rep.start_value:,.2f} → [bold]{rep.end_value:,.2f}[/bold] "
+                          f"{config.quote_currency}")
+    perf.add_row("Strategy return", _pnl(rep.strategy_return_pct, suffix="%"))
+    perf.add_row("Buy & hold return", _pnl(rep.benchmark_return_pct, suffix="%"))
+    perf.add_row("[bold]Alpha (strat − B&H)[/bold]",
+                 _pnl(rep.alpha_pct, suffix="%") + "  [dim](the number that matters)[/dim]")
+    perf.add_row("Max drawdown", f"[red]-{rep.max_drawdown_pct:.2f}%[/red]")
+    perf.add_row("Peak value", f"{rep.peak_value:,.2f} {config.quote_currency}")
+    console.print(perf)
+
+    trades = Table(show_header=False, box=None)
+    trades.add_row("Trades", f"{rep.trades}  ({rep.buys} buys, {rep.sells} sells)")
+    trades.add_row("Closed trades", f"{rep.closed_trades}")
+    trades.add_row("Win rate", f"{rep.win_rate_pct:.0f}%  "
+                               f"[dim]({rep.wins}/{rep.closed_trades} sells beat cost)[/dim]")
+    trades.add_row("Fees paid", f"{rep.fees_paid:,.2f} {config.quote_currency}")
+    console.print(trades)
+
+    if rep.benchmark_symbols:
+        console.print(f"[dim]Benchmark = equal-weight buy-and-hold of "
+                      f"{', '.join(rep.benchmark_symbols)} over the same window.[/dim]")
+
+
 # --------------------------------------------------------------------------
 def _live_prices(config, pf) -> dict[str, float]:
     """Live prices for the basket; fall back to cost basis if a fetch fails."""
@@ -156,6 +196,9 @@ def _live_prices(config, pf) -> dict[str, float]:
 
 def _render_cycle(cycle: CycleResult, dry_run: bool = False) -> None:
     lines = []
+    if cycle.halted:
+        lines.append(f"[bold red]⛔ {cycle.halt_reason}[/bold red]")
+        lines.append("")
     for a in cycle.assets:
         head = (
             f"[bold]{a.symbol}[/bold] @ {a.price:,.2f}  "

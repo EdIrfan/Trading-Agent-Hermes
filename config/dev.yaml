@@ -6,7 +6,7 @@ environment: dev
 # ---- Broker ----
 # "paper" = simulated fills against live prices (DEV). "binance" = real orders (PROD).
 broker: paper
-starting_cash: 10000.0          # fake USDT the paper account begins with
+starting_cash: 1000.0           # fake USDT — matches the real capital we plan to use
 quote_currency: USDT
 
 # ---- Exchange / market data ----
@@ -35,9 +35,16 @@ slippage_rate: 0.0005           # 0.05% assumed slippage on market orders
 #   Sell             -> close the position
 #   Hold             -> nothing
 strategy: fixed_notional
-trade_notional: 100.0           # USDT bought/sold per signal (change to 50 for smaller trades)
-max_position_notional: 2000.0   # hard per-coin cap (max held in any one coin)
-min_order_notional: 10.0        # skip dust orders (Binance min-lot guard)
+trade_notional: 10.0            # USDT bought/sold per signal (small $10 trades on $1k capital)
+max_position_notional: 200.0    # hard per-coin cap (max 20% of $1k in any one coin)
+min_order_notional: 5.0         # skip dust orders (below half a trade)
+
+# ---- Safety: daily-loss circuit breaker (Phase 3) ----
+# If the portfolio falls more than max_daily_loss_pct below the UTC day's opening
+# value, block new buys for the rest of the day (sells still allowed). The bot's
+# kill switch — a portfolio-level halt no single AI decision can override.
+circuit_breaker: true
+max_daily_loss_pct: 0.05        # halt new buys after a 5% intraday drawdown
 
 # ---- LLM (the brain) ----
 # Using Google Gemini on the FREE tier for testing. gemini-2.5-flash has the

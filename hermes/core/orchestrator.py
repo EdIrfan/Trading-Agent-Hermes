@@ -16,12 +16,14 @@ from datetime import datetime, timezone
 from hermes.brain.base import Brain
 from hermes.broker.base import Broker
 from hermes.core.config import Config
-from hermes.core.models import Decision, Fill, Order
+from hermes.core.models import Decision, Fill, Order, Side
 from hermes.data.market import MarketData
 from hermes.data.snapshot import build_live_snapshot
 from hermes.data.symbols import SymbolMap
+from hermes.metrics.equity import EquityLog
 from hermes.portfolio.ledger import Ledger
 from hermes.portfolio.portfolio import Portfolio
+from hermes.risk.circuit_breaker import CircuitBreaker
 from hermes.risk.manager import RiskManager
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,8 @@ class CycleResult:
     value_before: float = 0.0
     value_after: float = 0.0
     ts: float = field(default_factory=time.time)
+    halted: bool = False          # daily-loss circuit breaker tripped this cycle
+    halt_reason: str = ""
 
     @property
     def fills(self) -> list[Fill]:
@@ -63,6 +67,8 @@ class Orchestrator:
         risk: RiskManager,
         portfolio: Portfolio,
         ledger: Ledger,
+        equity: EquityLog | None = None,
+        breaker: CircuitBreaker | None = None,
     ):
         self.config = config
         self.market = market
@@ -71,6 +77,8 @@ class Orchestrator:
         self.risk = risk
         self.portfolio = portfolio
         self.ledger = ledger
+        self.equity = equity
+        self.breaker = breaker
         self.symbol_maps: list[SymbolMap] = config.symbol_maps
 
     def run_cycle(self, *, dry_run: bool = False) -> CycleResult:
@@ -88,6 +96,13 @@ class Orchestrator:
         value_before = self.portfolio.value(prices)
         trade_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+        # Portfolio-level kill switch: if the day's loss limit is breached, no new
+        # buys this cycle (sells still go through to cut risk). Checked once, up
+        # front, against the whole portfolio — outside and above the per-coin sizing.
+        check = self.breaker.check(value_before) if self.breaker else None
+        if check and check.tripped:
+            logger.warning(check.reason)
+
         assets: list[AssetCycle] = []
         for m in active:
             snapshot = build_live_snapshot(
@@ -98,23 +113,33 @@ class Orchestrator:
                 past_context=self._portfolio_summary(prices),
             )
             result = self.risk.decide_order(decision, self.portfolio, m, prices)
+            order, risk_reason = result.order, result.reason
+            # Block buys while the breaker is tripped; let sells through.
+            if order is not None and order.side is Side.BUY and check and not check.allow_buys:
+                risk_reason = f"{m.base}: buy blocked — {check.reason}"
+                order = None
             fill: Fill | None = None
-            if result.order is not None and not dry_run:
-                fill = self.broker.place_order(result.order)
+            if order is not None and not dry_run:
+                fill = self.broker.place_order(order)
                 self.portfolio.apply_fill(fill)
                 self.ledger.record(fill)
             assets.append(AssetCycle(
                 symbol=m.ccxt, base=m.base, price=prices[m.base], decision=decision,
-                risk_reason=result.reason, order=result.order, fill=fill,
+                risk_reason=risk_reason, order=order, fill=fill,
             ))
 
         if not dry_run and any(a.fill for a in assets):
             self.portfolio.save(self.config.portfolio_path)
 
+        value_after = self.portfolio.value(prices)
         cycle = CycleResult(
-            assets=assets, value_before=value_before,
-            value_after=self.portfolio.value(prices), ts=time.time(),
+            assets=assets, value_before=value_before, value_after=value_after,
+            ts=time.time(), halted=bool(check and check.tripped),
+            halt_reason=check.reason if (check and check.tripped) else "",
         )
+        # Record the value-over-time point (real runs only; dry runs don't move money).
+        if self.equity is not None and not dry_run:
+            self.equity.append(value=value_after, cash=self.portfolio.cash, prices=prices)
         self._record(cycle)
         return cycle
 

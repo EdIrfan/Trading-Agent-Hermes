@@ -87,6 +87,12 @@ class Config:
     sleeve_fill: dict[str, float | None] = field(default_factory=_default_sleeve_fill)
     rebalance_threshold_pct: float = 0.05
 
+    # Safety — daily-loss circuit breaker (Phase 3). If the portfolio falls more
+    # than ``max_daily_loss_pct`` below the UTC day's opening value, block new
+    # buys for the rest of the day (sells still allowed). The bot's kill switch.
+    circuit_breaker: bool = True
+    max_daily_loss_pct: float = 0.05
+
     # LLM
     llm_provider: str = "anthropic"
     deep_think_llm: str = "claude-sonnet-4-6"
@@ -122,6 +128,16 @@ class Config:
     def ledger_path(self) -> Path:
         return self.state_dir / "ledger.sqlite"
 
+    @property
+    def equity_path(self) -> Path:
+        """Time series of portfolio value (one row per cycle) — feeds the report."""
+        return self.state_dir / "equity.csv"
+
+    @property
+    def breaker_path(self) -> Path:
+        """Persisted daily-loss circuit-breaker state."""
+        return self.state_dir / "breaker.json"
+
     def ensure_state_dirs(self) -> None:
         self.decisions_dir.mkdir(parents=True, exist_ok=True)
 
@@ -137,7 +153,8 @@ _OVERRIDABLE = {
     "symbol_exchanges", "candle_timeframe", "candle_lookback", "taker_fee_rate",
     "slippage_rate", "strategy", "trade_notional", "max_position_notional",
     "min_order_notional", "max_total_exposure", "max_position_pct",
-    "sleeve_fill", "rebalance_threshold_pct", "llm_provider", "deep_think_llm",
+    "sleeve_fill", "rebalance_threshold_pct", "circuit_breaker",
+    "max_daily_loss_pct", "llm_provider", "deep_think_llm",
     "quick_think_llm", "max_debate_rounds", "max_risk_discuss_rounds", "analysts",
 }
 
