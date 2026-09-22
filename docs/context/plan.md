@@ -129,8 +129,9 @@ class Broker(Protocol):
 
 ### 3.7 Scheduler (`hermes/scheduler/` or external)
 - Run the orchestrator on a cadence (`--interval 4h`) or once (`--once`).
-- Could be a simple Python loop, OS cron, or Claude Code `/schedule`/`/loop`.
-  Decide later; start with a simple loop + `--once`.
+- Could be a simple Python loop, OS cron, or an AI coding agent's built-in
+  scheduler (e.g. Claude Code's `/schedule`/`/loop`). Decide later; start with
+  a simple loop + `--once`.
 
 ### 3.8 CLI (`hermes/cli/`)
 - `hermes run --env dev --symbol BTCUSDT [--interval 4h | --once] [--dry-run]`

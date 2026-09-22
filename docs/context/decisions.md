@@ -96,7 +96,8 @@ PROD ones (D9, D10) can wait.
 
 ## D8 — Scheduling & trade cadence
 - **Question:** How often should the bot make a decision — every `1h`, `4h`,
-  `1d`? And run via a simple in-process loop, OS cron, or Claude Code `/schedule`?
+  `1d`? And run via a simple in-process loop, OS cron, or an AI agent's
+  built-in scheduler (e.g. Claude Code's `/schedule`)?
 - **My recommendation:** Start with **`--once`** (manual) during development, then
   a **simple in-process loop** with `--interval 4h` for DEV. 4h balances signal
   freshness against LLM cost (each run costs tokens). Daily is cheapest. We can

@@ -11,8 +11,9 @@ environments:
 
 DEV and PROD share one codebase and differ only in the **Broker** implementation.
 
-> Full design docs are in [`docs/context/`](docs/context/) — start with
-> [`docs/context/README.md`](docs/context/README.md).
+> **[CLAUDE.md](CLAUDE.md)** — the operating contract for an AI coding agent
+> driving this repo. Full design docs are in [`docs/context/`](docs/context/) —
+> start with [`docs/context/README.md`](docs/context/README.md).
 
 ## Status
 

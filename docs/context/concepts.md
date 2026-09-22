@@ -339,8 +339,8 @@ Hermes's portfolio is a ledger: each fill appends a row; the balance is derivabl
 from the rows. The source of truth for "how am I doing?".
 
 **Scheduler / cron / loop** — what makes the bot run on a cadence (e.g. "decide
-every 4 hours") instead of once by hand. Could be a simple loop, a cron job, or the
-Claude Code `/schedule` and `/loop` features.
+every 4 hours") instead of once by hand. Could be a simple loop, a cron job, or an
+AI coding agent's built-in scheduler (e.g. Claude Code's `/schedule` and `/loop`).
 
 **Dry-run** — executing all the logic but stopping short of the irreversible step
 (placing a real order), printing what *would* happen. A safety feature for PROD.
